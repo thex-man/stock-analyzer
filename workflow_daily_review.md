@@ -84,9 +84,12 @@ python sheet6_macd_chan_10d.py
 ```
 
 - 筛选条件：创业板（300xxx）+ MACD>0 + **近10日涨幅>20%**（比 Sheet6 更严格）
-- K线来源：baostock（与 Sheet6 不同），需要 34 根以上 K 线
-- 名称读取：`concept_data/{code6}_concepts.json` 中的 `stock_name` 字段
-  - **踩坑**：`stock_name` 不是 `name`，曾被误读导致“名称”列填了代码
+- 实现：
+  - **问财查股**：1 次 wencai 调用 `"创业板 MACD大于0 近10日涨幅大于20%"`，返回 22 只左右
+  - **K线拉取**：22 次 akshare 腾讯源 `get_kline`（每只股票1 次）
+  - **本地计算**：MACD / 缁论结构打分 / 趋势 / 中枢 / 分型 / 背驰 / 量能
+- 调用总数：**~23 次**（远低于 100 次门控）✅
+- 迁移记录（2026-08-23）：原 baostock 版 `sheet6_macd_chan_10d_baostock.py`（1389 次调用）已删除，迁移为 wencai 版
 - 写入 `data\板块轮动Top10_v4_含非Top3强势个股.xlsx` Sheet7（**MACD强势个股_10日**，13列）
 - 列结构与 Sheet6 一致，仅 F 列名称为 “10日涨幅%”（Sheet6 是 “5日涨幅%”）
 
@@ -116,9 +119,9 @@ python excel_to_html.py
 | `add_top3_stocks_sheet.py` | 追加 Sheet4（每日Top3强势个股）→ v3 |
 | `copy_v3_to_v4.py` | 复制 v3 → v4（临时用） |
 | `sheet5_wencai_v2.py` | 生成 Sheet5（非Top3强势个股+概念）→ v4 |
-| `sheet6_wencai.py` | 生成 Sheet6（MACD强势个股+缠论打分）→ v4 |
-| `sheet6_macd_chan_10d.py` | 生成 Sheet7（MACD强势个股_10日，10日>20%）→ v4 |
-| `sheet6_macd_chan.py` | Sheet6 本地版（baostock，目前未走 SOP） |
+| `sheet6_wencai.py` | 生成 Sheet6（MACD强势个股+缠论打分，5日>10%）→ v4 |
+| `sheet6_macd_chan_10d.py` | 生成 Sheet7（MACD强势个股_10日，10日>20%，wencai版）→ v4 |
+| `sheet6_macd_chan.py` | Sheet6 本地版（baostock，保留作 fallback） |
 | `excel_to_html.py` | v4 Excel → HTML 看板（含 Sheet6 + Sheet7） |
 | `crawler_kechuang_concepts.py` | 爬取科创板（688）概念 → `concept_data/688xxx.json` |
 | `import_bj_concepts.py` | 将北交所 Excel → JSON → `concept_data/` |

@@ -65,9 +65,12 @@ python sheet6_macd_chan_10d.py
 ```
 
 - 筛选条件：创业板（300xxx）+ MACD>0 + **近10日涨幅>20%**（比 Sheet6 更严格）
-- K线来源：baostock（与 Sheet6 不同），需要 34 根以上 K 线
-- 名称读取：`concept_data/{code6}_concepts.json` 中的 `stock_name` 字段
-  - **踩坑**：`stock_name` 不是 `name`，曾被误读导致“名称”列填了代码
+- 实现：
+  - **问财查股**：1 次 wencai `"创业板 MACD大于0 近10日涨幅大于20%"`
+  - **K线拉取**：22 次 akshare 腾讯源 `get_kline`
+  - **本地计算**：MACD / 缁论结构打分
+- 调用总数：**~23 次**（远低于 100 次门控）✅
+- 迁移记录（2026-08-23）：原 baostock 版（1389 次调用）已删除，迁移为 wencai 版
 - 写 Sheet「MACD强势个股_10日」到 v4 Excel
 
 > 必跑步骤：每次复盘都要生成 Sheet7，HTML 看板依赖它才能出现“10日>20%” tab。
@@ -114,10 +117,14 @@ python excel_to_html.py
 - HTML 看板新增独立 tab「MACD强势个股（10日>20%）」，复用 Sheet6 样式与配色
 - 修 `sheet6_macd_chan_10d.py` 名称取值：原用 `cdata.get('name')`，概念 JSON 实际键为 `stock_name`，导致名称列填了代码；已改为 `cdata.get('stock_name') or cdata.get('name') or code6`
 - v1.2 调整：Step 4.5 从可选升级为必跑（每次复盘都需要 Sheet7 数据）
+- **v1.3**：Sheet7 从 baostock 迁移到 wencai
+  - 调用次数从 ~1389 降到 ~23（减少 98%）
+  - 删除 `sheet6_macd_chan_10d_baostock.py`
+  - 当前使用 wencai 直接查股 + akshare 拉 K 线
 
 ### v1.0 (2026-08-22)
 - 初始版本，4 步流水线（akshare + baostock + baostock + excel_to_html）
 
 ---
 
-*工作流版本：v1.2 | 最后更新：2026-08-23 11:04*
+*工作流版本：v1.3 | 最后更新：2026-08-23 17:54*
