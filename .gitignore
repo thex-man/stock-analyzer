@@ -1,0 +1,84 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 数据/缓存（业务数据不进版本控制）
+data/board_history_ths/
+data/board_history/
+data/*.xlsx
+data/*.html
+data/*.csv
+data/*.json
+data/*.json.bak
+concept_data/
+stock_data/
+stock_interactive_data/
+stock_concept_data/
+concept_data_enriched/
+suspended_stocks_data/
+warehouse/
+.claude/
+
+# 大文件（不入库）
+*.csv
+*.xlsx
+all_chixnext_concepts.*
+period_js.txt
+
+# 日志/临时
+*.log
+*.tmp
+*.bak
+*_bak.*
+*.py.bak.*
+*.py.orig
+*.bak.*
+sens.txt
+sogou_debug.html
+tgb_*.html
+multi_strage*.py
+peek_*.py
+
+# 调试/一次性脚本
+test_*.py
+check_*.py
+retry_*.py
+find_*.py
+analyze_*.py
+probe_*.py
+debug_*.py
+diff_*.py
+verify_*.py
+list_*.py
+check_*.txt
+review_*.py
+
+# PyInstaller
+*.spec
+
+# 嵌入式仓库（单独管理）
+all-rag-techniques/
+
+# 系统
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Excel 临时锁
+.~*.xlsx
+*.tmp.xlsx
+
+# venv config
+pyvenv.cfg
