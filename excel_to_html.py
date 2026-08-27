@@ -46,6 +46,14 @@ if 'MACD强势个股_10日' in wb.sheetnames:
     for row in wb['MACD强势个股_10日'].iter_rows(values_only=False):
         s7_rows.append([{'value': c.value, 'color': get_cell_color(c)} for c in row])
 
+s8_rows = []  # MACD5日_最近10日
+if 'MACD5日_最近10日' in wb.sheetnames:
+    for row in wb['MACD5日_最近10日'].iter_rows(values_only=False):
+        s8_rows.append([{'value': c.value, 'color': get_cell_color(c)} for c in row])
+
+# 2026-08-27：移除了 MACD v2 衍生 sheets（s9-s19）的读取逻辑（已废弃）
+# 当前 v4 只保留 8 个 sheet：行业/概念/色卡/Top3/非Top3/MACD5日/MACD10日/MACD5日_最近10日
+
 def build_sheet1_html(label, rows):
     # ---- 计算出现次数>2且每次涨幅>1%的板块并分配颜色 ----
     board_info = {}  # name -> {'count': N, 'gains': [g1, g2...]}
@@ -140,6 +148,109 @@ def build_sheet1_html(label, rows):
         html += '</tr>'
     html += '</table></div></div>'
     return html
+
+def build_sheet8_recent_html(rows):
+    """MACD 5日>10% 最近10个交易日滚动表"""
+    if not rows or len(rows) < 2:
+        return ''
+
+    title = rows[0][0]['value'] if rows else 'MACD 5日>10% 最近10个交易日'
+    cols = [c['value'] for c in rows[1]] if len(rows) > 1 else []
+
+    data_rows = []
+    for r in rows[2:]:
+        if r and r[0]['value']:
+            data_rows.append(r)
+
+    html = '<style>'
+    html += '  .s8-table { width:100%; border-collapse:collapse; font-size:0.85rem; }'
+    html += '  .s8-table th { background:#1e2d4a; color:#93c5fd; padding:10px 12px; text-align:center; font-weight:600; border:1px solid #2a3f6f; position:sticky; top:0; }'
+    html += '  .s8-table td { padding:8px 12px; text-align:center; border:1px solid #2a2a4a; }'
+    html += '  .s8-table tr:hover td { background:#2a2f4a; }'
+    html += '  .s8-day-header { background:#0f3460 !important; color:#e2e8f0 !important; font-weight:700; padding:10px; text-align:left; font-size:0.95rem; border-top:2px solid #60a5fa; }'
+    html += '  .s8-day-header span { color:#93c5fd; margin-left:12px; font-size:0.8rem; font-weight:400; }'
+    html += '  .s8-gain-hot { background:#FFD700 !important; color:#1a1a2e !important; font-weight:700; }'
+    html += '  .s8-gain-warm { background:#FFEB9C !important; color:#1a1a2e !important; font-weight:700; }'
+    html += '  .s8-gain-cold { background:#FFC7CE !important; color:#9C0006 !important; font-weight:700; }'
+    html += '  .s8-stats { margin: 8px 0 16px; padding: 10px; background: #1e2d4a; border-radius: 6px; color: #e2e8f0; font-size: 0.85rem; }'
+    html += '  .s8-stats b { color: #93c5fd; margin-right: 16px; }'
+    html += '</style>'
+
+    html += '<div id="tab-MACD5日_最近10日" class="panel">'
+
+    # 标题
+    html += f'<div class="s8-day-header">📊 {title}'
+    html += f'<span>按信号日降序，每天内按信号日→今日%降序</span></div>'
+
+    # 统计
+    n_total = len(data_rows)
+    days = {}
+    gain_pos = 0
+    gain_big = 0
+    for r in data_rows:
+        d = r[0]['value']
+        days[d] = days.get(d, 0) + 1
+        try:
+            g = float(r[6]['value'] or 0)
+            if g > 0:
+                gain_pos += 1
+            if g >= 20:
+                gain_big += 1
+        except:
+            pass
+    n_days = len(days)
+    html += '<div class="s8-stats">'
+    html += f'<b>总信号: {n_total}</b>'
+    html += f'<b>覆盖交易日: {n_days}</b>'
+    html += f'<b>盈利股数: {gain_pos}</b>'
+    html += f'<b>盈利≥20%: {gain_big}</b>'
+    html += f'<b>亏损股数: {n_total - gain_pos}</b>'
+    html += '</div>'
+
+    # 过滤栏
+    html += '<div class="filter-bar">'
+    html += '<label>🔍 <input type="text" id="filter8" oninput="filterTable(8)" placeholder="过滤代码/名称/信号日..."></label>'
+    html += '<label>信号日: <input type="date" id="dateFilter8" oninput="filterTable(8)"></label>'
+    html += '</div>'
+
+    # 表格
+    html += '<div class="table-wrap"><table class="s8-table" id="table8">'
+    html += '<thead><tr>'
+    for c in cols:
+        html += f'<th>{c}</th>'
+    html += '</tr></thead><tbody>'
+
+    last_day = None
+    for r in data_rows:
+        d = r[0]['value']
+        if d != last_day:
+            last_day = d
+            day_count = days.get(d, 0)
+            html += f'<tr class="day-section"><td colspan="{len(cols)}" class="s8-day-header">'
+            html += f'📅 {d} <span>{day_count} 只信号</span></td></tr>'
+
+        html += '<tr>'
+        for i, cell in enumerate(r):
+            v = cell['value']
+            extra_class = ''
+            if i == 6 and isinstance(v, (int, float)):
+                if v >= 20:
+                    extra_class = 's8-gain-hot'
+                elif v >= 10:
+                    extra_class = 's8-gain-warm'
+                elif v < 0:
+                    extra_class = 's8-gain-cold'
+            if i == 7 and isinstance(v, (int, float)):
+                html += f'<td class="{extra_class}">{v:.1f}</td>'
+            elif i in (3, 4, 5, 6) and isinstance(v, (int, float)):
+                html += f'<td class="{extra_class}">{v:.2f}</td>'
+            else:
+                html += f'<td class="{extra_class}">{v if v is not None else ""}</td>'
+        html += '</tr>'
+
+    html += '</tbody></table></div></div>'
+    return html
+
 
 def build_legend_html(rows):
     hy, gn = [], []
@@ -370,7 +481,8 @@ panels_html = (
     build_sheet45_html(s5_rows, 5, '非Top3板块强势个股',
                        ['日期', '个股代码', '个股简称', '所属概念', '板块涨幅', '个股涨幅']) +
     (build_sheet6_html(s6_rows, gain_label='5日涨幅%', tab_id='MACD强势个股', table_id='table6', filter_id='filter6', stats_id='stats6') if s6_rows else '') +
-    (build_sheet6_html(s7_rows, gain_label='10日涨幅%', tab_id='MACD强势个股_10日', table_id='table7', filter_id='filter7', stats_id='stats7') if s7_rows else '')
+    (build_sheet6_html(s7_rows, gain_label='10日涨幅%', tab_id='MACD强势个股_10日', table_id='table7', filter_id='filter7', stats_id='stats7') if s7_rows else '') + \
+    (build_sheet8_recent_html(s8_rows) if s8_rows else '')
 )
 
 # ===== Full HTML =====
@@ -439,6 +551,7 @@ tr:hover td {{ background: #2a2f4a; }}
   <button class="tab" onclick="showTab('非Top3板块强势个股', this)">非Top3板块强势个股</button>
   <button class="tab" onclick="showTab('MACD强势个股', this)">MACD强势个股（5日>10%）</button>
   <button class="tab" onclick="showTab('MACD强势个股_10日', this)">MACD强势个股（10日>20%）</button>
+  <button class="tab" onclick="showTab('MACD5日_最近10日', this)">MACD 5日>10% 最近10日</button>
 </div>
 {panels_html}
 <script>

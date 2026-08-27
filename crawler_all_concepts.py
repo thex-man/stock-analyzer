@@ -13,7 +13,7 @@ import threading
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
 BASE_DIR = r"D:\stock\tool\stock"
-SAVE_DIR = r"D:\stock\tool\stock\concept_data"
+SAVE_DIR = r"D:\stock\tool\stock\data\concept_data"
 HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
     'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
@@ -66,8 +66,14 @@ def extract_concept_reasons(html):
 
 def crawl_stock(code, name):
     os.makedirs(SAVE_DIR, exist_ok=True)
-    html1, code1 = fetch(f"https://basic.10jqka.com.cn/{code}/concept.html", encoding='gbk')
-    concepts = extract_concepts_from_concept_page(html1) if code1 == 200 else []
+    # v2: THS 高并发会返回空概念页，零命中重试3次
+    concepts, reasons = [], {}
+    for attempt in range(3):
+        html1, code1 = fetch(f"https://basic.10jqka.com.cn/{code}/concept.html", encoding='gbk')
+        concepts = extract_concepts_from_concept_page(html1) if code1 == 200 else []
+        if concepts:
+            break
+        time.sleep(3 + attempt * 3)
     html2, code2 = fetch(f"https://basic.10jqka.com.cn/{code}/")
     reasons = extract_concept_reasons(html2) if code2 == 200 else {}
     for c in concepts:
@@ -112,15 +118,21 @@ def main():
     success, skipped, failed = 0, 0, 0
     total = len(stock_list)
 
-    with ThreadPoolExecutor(max_workers=16) as executor:
+    with ThreadPoolExecutor(max_workers=4) as executor:
         futures = {}
         for code, name in stock_list:
             fpath = os.path.join(SAVE_DIR, f"{code}_concepts.json")
             if os.path.exists(fpath):
-                with print_lock:
-                    print(f"[{len(futures)+1}/{total}] 跳过 {code} {name} (已存在)")
-                skipped += 1
-                continue
+                try:
+                    with open(fpath, 'r', encoding='utf-8') as f:
+                        _prev = json.load(f)
+                    if _prev.get('total_concepts', 0) > 0:
+                        with print_lock:
+                            print(f"[{len(futures)+1}/{total}] 跳过 {code} {name} (已有{ _prev['total_concepts'] }个概念)")
+                        skipped += 1
+                        continue
+                except Exception:
+                    pass  # 损坏文件重抓
             future = executor.submit(worker, code, name)
             futures[future] = (code, name)
 
@@ -141,8 +153,8 @@ def main():
                     print(f"[{done_count}/{total}] FAIL {code} {name} -> {err}")
                 failed += 1
 
-            # 每50只休息一下
-            if done_count % 50 == 0:
+            # 每20只休息一下（v2: 降低限流风险）
+            if done_count % 20 == 0:
                 time.sleep(2)
 
     print(f"\n[*] 完成: 成功 {success}, 跳过 {skipped}, 失败 {failed}")

@@ -13,11 +13,82 @@ stock_data_source.py
     get_kline('sz300534', start='20260801', end='20260820')  # 个股K线（腾讯）
     get_board('概念')   # 板块涨幅（新浪）
 """
-import subprocess, os, requests, json
+import subprocess, os, requests, json, time, shutil
 import pandas as pd
 import akshare as ak
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.common.by import By
 
 WC_DIR = r'C:\Users\s5631\AppData\Local\Programs\Python\Python313\Lib\site-packages\pywencai'
+CHROME_BIN = r'C:\Program Files\Google\Chrome\Application\chrome.exe'
+
+# ============ Selenium Chrome Driver 缓存（进程内复用）============
+_selenium_driver = None
+_selenium_profile_dir = None
+
+def _get_selenium_driver():
+    """获取或创建 Selenium Chrome Driver（headless，单例）"""
+    global _selenium_driver, _selenium_profile_dir
+    if _selenium_driver is not None:
+        try:
+            _selenium_driver.current_url  # 保活检查
+            return _selenium_driver
+        except Exception:
+            try:
+                _selenium_driver.quit()
+            except Exception:
+                pass
+            _selenium_driver = None
+            if _selenium_profile_dir and os.path.exists(_selenium_profile_dir):
+                shutil.rmtree(_selenium_profile_dir, ignore_errors=True)
+            _selenium_profile_dir = None
+
+    profile_dir = rf'C:\Users\s5631\AppData\Local\Temp\wencai_sel_{int(time.time())}'
+    os.makedirs(profile_dir, exist_ok=True)
+
+    options = Options()
+    options.binary_location = CHROME_BIN
+    options.add_argument('--headless')
+    options.add_argument('--disable-gpu')
+    options.add_argument('--no-sandbox')
+    options.add_argument('--disable-dev-shm-usage')
+    options.add_argument('--disable-software-rasterizer')
+    options.add_argument('--window-size=1280,720')
+    options.add_argument('--disable-blink-features=AutomationControlled')
+    options.page_load_strategy = 'eager'
+    options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36")
+    prefs = {"profile.managed_default_content_settings.images": 2}
+    options.add_experimental_option('prefs', prefs)
+    options.add_experimental_option('excludeSwitches', ['enable-logging'])
+    options.add_argument("--log-level=3")
+    options.add_argument(f'--user-data-dir={profile_dir}')
+
+    service = Service(log_path=os.devnull)
+    driver = webdriver.Chrome(service=service, options=options)
+    driver.set_page_load_timeout(20)
+
+    _selenium_driver = driver
+    _selenium_profile_dir = profile_dir
+    return driver
+
+
+def _close_selenium_driver():
+    """关闭 Selenium Driver（全局清理）"""
+    global _selenium_driver, _selenium_profile_dir
+    if _selenium_driver:
+        try:
+            _selenium_driver.quit()
+        except Exception:
+            pass
+        _selenium_driver = None
+    if _selenium_profile_dir:
+        shutil.rmtree(_selenium_profile_dir, ignore_errors=True)
+        _selenium_profile_dir = None
 
 # ============ 1. 个股K线：腾讯接口（akshare） ============
 def get_kline(code: str, start: str = '20200101', end: str = '20991231',
@@ -54,74 +125,126 @@ def get_board(kind: str = '概念', top: int = 20) -> pd.DataFrame:
         df = df.sort_values('_pct', ascending=False).head(top)
     return df
 
-# ============ 4. 问财原始接口（绕过pywencai库） ============
+# ============ 4. 问财接口（Selenium Headless）============
 def wencai(query: str, page: int = 1, perpage: int = 50) -> dict:
     """
-    直接调用问财HTTP接口，返回原始JSON（字典）
-    绕过 pywencai 库的 bug（condition=None 时直接返回None）
+    用 Selenium Headless Chrome 访问问财，执行查询并提取结果。
 
-    query: 搜索语句，如 '今日概念板块涨幅排行'
-    返回: {'columns': [...], 'datas': [...], 'total': ...}
+    query: 搜索语句，如 '创业板 MACD大于0 近5日涨幅大于10%'
+    perpage: 每页条数（问财实际最多返回200条）
+    返回: {'columns': [...], 'datas': DataFrame, 'total': int}
+          出错返回 {'error': str}
     """
-    # 生成token
-    token = subprocess.run(
-        ['node', os.path.join(WC_DIR, 'hexin-v.bundle.js')],
-        capture_output=True, timeout=10
-    ).stdout.decode().strip()
-
-    payload = {
-        'add_info': '{"urp":{"scene":1,"company":1,"business":1},"contentType":"json","searchInfo":true}',
-        'perpage': str(perpage),
-        'page': page,
-        'source': 'Ths_iwencai_Xuangu',
-        'log_info': '{"input_type":"click"}',
-        'version': '2.0',
-        'secondary_intent': 'stock',
-        'question': query
-    }
-
-    headers = {
-        'hexin-v': token,
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        'Content-Type': 'application/json',
-        'Referer': 'http://www.iwencai.com',
-    }
-
-    url = 'http://www.iwencai.com/customized/chart/get-robot-data'
-    r = requests.post(url, json=payload, headers=headers, timeout=15)
-    resp = r.json()
-
-    # 解析表格数据
     try:
-        answer = resp['data']['answer'][0]
-        txt = answer['txt'][0]
-        comp = txt['content']['components'][0]
-        comp_data = comp['data']
+        driver = _get_selenium_driver()
+    except Exception as e:
+        return {'error': f'Chrome启动失败: {e}'}
 
-        columns = comp_data['columns']
-        datas = comp_data['datas']
+    try:
+        # 打开首页
+        driver.get('http://www.iwencai.com')
+        time.sleep(5)
 
-        # 列名映射
-        col_map = {}
-        for c in columns:
-            key = c.get('key') or c.get('label', '')
-            index_name = c.get('index_name', key)
-            col_map[key] = index_name
+        # 找搜索 textarea（React Shadow DOM 渲染）
+        ta = driver.execute_script(
+            "return document.querySelector('textarea[placeholder*=\"筛选条件\"]') "
+            "|| document.querySelector('textarea');"
+        )
+        if not ta:
+            return {'error': '未找到搜索框 textarea'}
 
-        # 构造DataFrame
-        rows = []
-        for row in datas:
-            mapped = {col_map.get(k, k): v for k, v in row.items()}
-            rows.append(mapped)
+        # 输入查询并提交
+        driver.execute_script("arguments[0].value = ''", ta)
+        ta.send_keys(query)
+        ta.send_keys(Keys.RETURN)
 
-        df = pd.DataFrame(rows)
+        # 等待结果页 URL 变化
+        try:
+            WebDriverWait(driver, 15).until(
+                EC.url_contains('/screener/result')
+            )
+        except Exception:
+            return {'error': f'等待结果页超时，当前URL: {driver.current_url}'}
+
+        # 等表格渲染（React 动态加载）
+        time.sleep(10)
+
+        # 用 JS 提取表格数据
+        raw = driver.execute_script("""
+            let container = document.querySelector('#xuangu-view table-wrapper-content')
+                || document.querySelector('#tableWrap')
+                || document.querySelector('.table-wrap')
+                || document.querySelector('[class*="table-wrapper"]')
+                || document.querySelector('#content');
+            if (!container) {
+                // 兜底：找最大的 table
+                let tables = document.querySelectorAll('table');
+                let best = null;
+                for (let t of tables) {
+                    if (!best || t.querySelectorAll('tr').length > best.querySelectorAll('tr').length)
+                        best = t;
+                }
+                container = best;
+            }
+            if (!container) return {error: 'no_table'};
+
+            let trs = container.querySelectorAll('tr');
+            let result = [];
+            for (let tr of trs) {
+                let cells = tr.querySelectorAll('td,th');
+                result.push(Array.from(cells).map(c => c.innerText.trim()));
+            }
+            return {rows: result.length, data: result};
+        """)
+
+        if raw.get('error') or not raw.get('data'):
+            return {'error': f"表格提取失败: {raw.get('error')}"}
+
+        rows = raw['data']
+        if not rows:
+            return {'error': '结果为空', 'data': pd.DataFrame()}
+
+        # 检查表头完整性：如果第一行列数远少于数据行，说明表头残缺
+        # 用列位置映射（问财结果列位置固定）
+        if len(rows) >= 2 and (len(rows[0]) < 5 or len(rows[0]) != len(rows[1])):
+            # 表头残缺，根据 row[1] 的数据量推断列数，用位置作列名
+            # 用第一行数据推断列数（跳过表头行）
+            data_rows = rows[1:] if len(rows[0]) < 5 else rows
+            num_cols = len(data_rows[0]) if data_rows else 0
+            # 问财选股结果列顺序（对照实际数据行确认）：
+            # 0=序号, 1=(空), 2=股票代码, 3=股票简称, 4=最新价, 5=涨跌幅, 6=成交额,
+            # 7=换手率, 8=量比, 9=振幅, 10=流通市值, 11=市盈率, 12=所属板块
+            pos_names = [
+                '序号', '_blank', '股票代码', '股票简称', '最新价',
+                '涨跌幅', '成交额', '换手率', '量比', '振幅',
+                '流通市值', '市盈率', '所属板块'
+            ]
+            # 取前 num_cols 个列名
+            header = pos_names[:num_cols]
+            # 不指定 header=None，让 pandas 自动分配列名，再 rename
+            df = pd.DataFrame(data_rows)
+            rename = {i: n for i, n in enumerate(header) if i < len(header)}
+            if rename:
+                df = df.rename(columns=rename)
+            if len(df.columns) < len(data_rows[0]):
+                # 如果实际列数多于 pos_names，补齐列名
+                for i in range(len(df.columns)):
+                    if i not in rename:
+                        rename[i] = f'_col_{i}'
+                df = df.rename(columns=rename)
+        else:
+            header = rows[0]
+            data_rows = rows[1:]
+            df = pd.DataFrame(data_rows, columns=header)
+
         return {
             'columns': list(df.columns),
             'datas': df,
             'total': len(df)
         }
-    except (KeyError, IndexError, TypeError) as e:
-        return {'error': str(e), 'raw': resp}
+
+    except Exception as e:
+        return {'error': str(e)}
 
 
 # ============ 5. baostock K线（稳定备选） ============

@@ -37,7 +37,7 @@ def show_formula_results():
         formula_button.place(x=500*i, y=500)
         #print(res.iloc[0:6].iloc[i].iloc[0] + ":" + res.iloc[0:6].iloc[i].iloc[1])
 def show_import_data_content(label):
-    res1 = pywencai.get(query = "连续红k,创业板，7日内阴线<4个，7日内涨幅大于5%,七日内涨幅大于5%次数>=1,返回所属同花顺行业,非ST股,竞价涨幅排名前三")
+    res1 = pywencai.get(query="连续红k,创业板，7日内阴线<4个，7日内涨幅大于5%,七日内涨幅大于5%次数>=1,返回所属同花顺行业,非ST股,竞价涨幅排名前三", sort_key='', sort_order='asc')
     #print(res.iloc[0:6].iloc[0])
     res2 = pywencai.get(query = "昨日神奇九转卖出>=5 竞价金额>100万 创业板，今日09点25分的收盘价>今日09点24分到今日09点25分的区间最低价，7日内阴线<4个，7日内涨幅大于5%")
     if res1 is None:

@@ -82,3 +82,27 @@ desktop.ini
 
 # venv config
 pyvenv.cfg
+# 2026-08-28 补充：大数据库与敏感文件
+auth.txt
+data/*.duckdb
+data/concept_data/
+data/concept_data_bak/
+data/industry_data/
+data/_archive/
+$null
+dom*.txt
+check.txt
+inspect_*.txt
+_diag.py
+copy_v3_to_v4.py
+cdp_nav*.py
+crawler_kechuang_concepts.py
+inspect_*.py
+screenshot_*.py
+sel_*.py
+shot_log.txt
+panel_*.txt
+macd_*.txt
+wc_test.png
+chromedriver_new.zip
+data/*.wal

@@ -1,9 +1,38 @@
+"""
+生成 Sheet1/2/3：行业Top10 + 概念Top10 + 色卡图例
+=====================================================
+v3 修复（2026-08-26）：
+  - 9:15 前：缓存 key（系统日期 20260826）= 实际交易日（20260825）
+  - 写入 Excel 时：把缓存日期转成实际交易日日期
+  - 例如：缓存 key=20260826 → Excel 显示 2026-08-25
+"""
 import json
 from pathlib import Path
 from collections import Counter
+from datetime import datetime, time as dtime
 from openpyxl import Workbook
 from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
+
+# ========== 日期转换：缓存日期 → Excel 显示日期 ==========
+now = datetime.now()
+cutoff = dtime(9, 15)
+current_date_str = now.strftime('%Y%m%d')  # 20260826
+
+def cache_date_to_excel_date(cache_date_str):
+    """
+    缓存 key 是系统日期，但数据是实际交易日。
+    9:15 前：系统日期（20260826）→ 交易日（20260825）
+    9:15 后：系统日期 = 交易日，无需转换
+    """
+    if now.time() < cutoff and cache_date_str == current_date_str:
+        # 9:15 前，当前系统日期对应的实际交易日是昨天
+        import datetime as dt
+        trade_ts = now.replace(hour=0, minute=0, second=0, microsecond=0).timestamp() - 86400
+        return dt.datetime.fromtimestamp(trade_ts).strftime('%Y-%m-%d')
+    else:
+        # 历史日期或 9:15 后：缓存日期 = 交易日
+        return f"{cache_date_str[:4]}-{cache_date_str[4:6]}-{cache_date_str[6:]}"
 
 # ============ 读取缓存 ============
 cache_files = sorted(Path('data/board_history_ths').glob('history_*.json'))
@@ -19,6 +48,12 @@ for sym, info in raw.items():
 
 dates_sorted = sorted(all_dates, reverse=True)
 last_10 = dates_sorted[:10]
+
+print(f"系统时间: {now.strftime('%Y-%m-%d %H:%M')}")
+print(f"9:15前: {'是' if now.time() < cutoff else '否'}")
+print(f"缓存日期: {last_10[:3]}... (系统日期)")
+print(f"Excel显示: {[cache_date_to_excel_date(d) for d in last_10[:3]]}... (交易日)")
+print()
 
 # ============ 构建每日Top10（行业/概念分开） ============
 daily_top10 = {}
@@ -58,7 +93,6 @@ repeat_gn = {n: c for n, c in gn_counts.items() if c > 2}
 all_repeat_names = set(repeat_hy.keys()) | set(repeat_gn.keys())
 
 # ============ 每个重复板块分配唯一颜色 ============
-# 用固定调色盘，保证每次运行颜色一致且差异大
 PALETTE = [
     'FF6B6B', 'FF9F43', 'FECA57', '48DBFB', '1DD1A1',
     'A55EEA', 'FD79A8', '00CEC9', '6C5CE7', 'FDCB6E',
@@ -86,7 +120,6 @@ board_colors = {}
 for i, name in enumerate(sorted(all_repeat_names)):
     board_colors[name] = PALETTE[i % len(PALETTE)]
 
-# 白色（只出现1次不上色）
 def get_fill(name):
     if name in board_colors:
         return PatternFill(start_color=board_colors[name], end_color=board_colors[name], fill_type="solid")
@@ -117,7 +150,9 @@ def make_sheet(ws, board_type):
     # 数据行（从旧到新）
     for row_idx, date in enumerate(reversed(last_10), 2):
         results = daily_top10[date][board_type]
-        row_data = [date] + [f"{name} {pct:+.2f}%" for pct, name in results]
+        # 关键：把缓存日期（系统日期）转成交易日日期显示
+        excel_date = cache_date_to_excel_date(date)
+        row_data = [excel_date] + [f"{name} {pct:+.2f}%" for pct, name in results]
         ws.append(row_data)
 
         # 日期列
@@ -153,7 +188,6 @@ ws_leg.column_dimensions['B'].width = 12
 ws_leg.column_dimensions['C'].width = 12
 ws_leg.column_dimensions['D'].width = 16
 
-# 标题
 for col, text in enumerate(["行业板块", "上榜次数", "概念板块", "上榜次数"], 1):
     c = ws_leg.cell(row=1, column=col, value=text)
     c.font = Font(bold=True, color="FFFFFF", size=11)
