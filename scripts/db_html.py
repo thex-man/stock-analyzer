@@ -358,8 +358,43 @@ def build_legend_html(board_history_data, n_days=10):
 
 
 def build_top3_html(top3_data, all_dates):
-    """Sheet4: 每日Top3强势个股"""
-    html = '<div class="filter-bar">'
+    """Sheet4: 每日Top3强势个股（10日内出现>2次的个股涂色 + 顶部汇总表）"""
+    # ---- 统计个股出现次数 ----
+    stock_stat = {}   # code -> {name, count, boards, dates, pcts}
+    for d in all_dates:
+        for item in top3_data.get(d, []):
+            code = item['code']
+            if code and code != '-':
+                s = stock_stat.setdefault(code, {'name': item['name'], 'count': 0, 'boards': [], 'dates': [], 'pcts': []})
+                s['count'] += 1
+                s['boards'].append(item['board'])
+                s['dates'].append(d[5:])
+                s['pcts'].append(item['pct'])
+    repeat = {c: s for c, s in stock_stat.items() if s['count'] > 2}
+    code_color = {}
+    for i, code in enumerate(sorted(repeat, key=lambda c: -repeat[c]['count'])):
+        code_color[code] = PALETTE[i % len(PALETTE)]
+
+    css = ''
+    for code, color in code_color.items():
+        css += f'.s4-{code} {{ background:#{color} !important; color:#1a1a2e !important; font-weight:600; }}\n'
+
+    # ---- 顶部汇总表 ----
+    summary = ''
+    if code_color:
+        summary = f'<p style="color:#93c5fd;margin:8px 0;">&#x1F3AF; 10 日内入选Top3超过2次的个股（共 {len(code_color)} 只）</p>'
+        summary += '<table class="stock-table" style="margin-bottom:16px;"><tr>'
+        summary += '<th>个股</th><th>次数</th><th>所属板块</th><th>入选日期</th><th>当日涨幅</th></tr>'
+        for code in sorted(code_color, key=lambda c: -repeat[c]['count']):
+            s = repeat[code]
+            summary += f'<tr class="s4-{code}"><td>{s["name"]} {code}</td><td>{s["count"]}</td>'
+            summary += f'<td>{"、".join(sorted(set(s["boards"])))}</td>'
+            summary += f'<td>{"、".join(s["dates"])}</td>'
+            summary += f'<td>{"、".join(f"{p:+.1f}%" for p in s["pcts"])}</td></tr>'
+        summary += '</table>'
+
+    html = f'<style>{css}</style>{summary}'
+    html += '<div class="filter-bar">'
     html += '<button class="filter-btn active" data-filter="all">全部日期</button>'
     for d in all_dates[:10]:
         html += f'<button class="filter-btn" data-filter="{d}">{d}</button>'
@@ -376,9 +411,11 @@ def build_top3_html(top3_data, all_dates):
             html += '<th>板块</th><th>板块涨幅</th><th>类型</th><th>强势个股</th><th>个股涨幅</th></tr>'
             current_board = None
             for item in items:
+                cls = f' class="s4-{item["code"]}"' if item['code'] in code_color else ''
                 if item['board'] != current_board:
                     current_board = item['board']
-                    html += f'<tr class="board-row">'
+                    bc = f'board-row s4-{item["code"]}' if item['code'] in code_color else 'board-row'
+                    html += f'<tr class="{bc}">'
                     html += f'<td>{item["board"]}</td>'
                     html += f'<td>{item["board_pct"]:+.2f}%</td>'
                     html += f'<td>{item["type"]}</td>'
@@ -389,7 +426,7 @@ def build_top3_html(top3_data, all_dates):
                         html += f'<td>—</td><td>—</td>'
                     html += f'</tr>'
                 else:
-                    html += f'<tr>'
+                    html += f'<tr{cls}>'
                     html += f'<td></td><td></td><td></td>'
                     if item['code'] and item['code'] != '-':
                         html += f'<td>{item["name"]} {item["code"]}</td>'
@@ -405,25 +442,34 @@ def build_top3_html(top3_data, all_dates):
 def build_non_top3_html(non_top3_data, all_dates):
     """Sheet5: 非Top3板块强势个股（涂色：10 日内出现>2 次的个股固定色）"""
     # ---- 统计个股出现次数 ----
-    stock_count = {}
+    stock_stat = {}   # code -> {name, count, dates}
     for d in all_dates:
         for item in non_top3_data.get(d, []):
             code = item['code']
             if code:
-                stock_count[code] = stock_count.get(code, 0) + 1
-    repeat_codes = {c for c, n in stock_count.items() if n > 2}
+                s = stock_stat.setdefault(code, {'name': item['name'], 'count': 0, 'dates': []})
+                s['count'] += 1
+                s['dates'].append(d[5:])
+    repeat_codes = {c for c, s in stock_stat.items() if s['count'] > 2}
     # 分配固定色（同 PALETTE）
     code_color = {}
-    for i, code in enumerate(sorted(repeat_codes)):
+    for i, code in enumerate(sorted(repeat_codes, key=lambda c: -stock_stat[c]['count'])):
         code_color[code] = PALETTE[i % len(PALETTE)]
 
     css = ''
     for code, color in code_color.items():
         css += f'.s5-{code} {{ background:#{color} !important; color:#1a1a2e !important; font-weight:600; }}\n'
 
+    # ---- 顶部汇总表 ----
     summary = ''
     if code_color:
-        summary = f'<p style="color:#93c5fd;margin:8px 0;">&#x1F3AF; 10 日内出现>2 次的个股（共 {len(code_color)} 只）：{ "、".join(sorted(code_color)) }</p>'
+        summary = f'<p style="color:#93c5fd;margin:8px 0;">&#x1F3AF; 10 日内出现>2 次的个股（共 {len(code_color)} 只）</p>'
+        summary += '<table class="stock-table" style="margin-bottom:16px;"><tr>'
+        summary += '<th>个股</th><th>出现次数</th><th>出现日期</th></tr>'
+        for code in sorted(code_color, key=lambda c: -stock_stat[c]['count']):
+            s = stock_stat[code]
+            summary += f'<tr class="s5-{code}"><td>{s["name"]} {code}</td><td>{s["count"]}</td><td>{"、".join(s["dates"])}</td></tr>'
+        summary += '</table>'
 
     html = f'<style>{css}</style>{summary}'
     html += '<div class="filter-bar">'
